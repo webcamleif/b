@@ -1,6 +1,7 @@
 import discord
 import json
 import os
+import random
 from discord.ext import commands
 
 intents = discord.Intents.default()
@@ -17,6 +18,7 @@ channels = {
 }
 
 READY_EMOJI = '✅'  # Define the emoji you want to use for readying up
+selection_emojis = ['🔵', '🔴', '🟢', '🟡', '🟣', '🟠', '⚪', '⚫', '🟤', '🔷']
 
 lobby_users = {}  # A dictionary to keep track of the users in the lobby
 lobby_message_id = Nonelobby_message_id = None
@@ -73,7 +75,7 @@ async def update_lobby_status():
         current_lobby_users = {member_id: status for member_id, status in lobby_users.items() if member_id in current_members}
 
         # Use the filtered dictionary for the count and player list
-        message_content += f"**{len(current_lobby_users)} user(s) in lobby, need at least 6 users**\n"
+        message_content += f"**{len(current_lobby_users)} user(s) in lobby, need at least 2 users**\n"
         message_content += f"React with {READY_EMOJI} below to ready up\n\n"
 
         player_lines = []
@@ -95,6 +97,61 @@ async def update_lobby_status():
             lobby_message_id = lobby_message.id
             save_lobby_message_id()  # Save the new message ID
             await lobby_message.add_reaction(READY_EMOJI)
+
+        # Check if all users in the lobby are ready and the count is between 2 and 10
+        if all(status for status in current_lobby_users.values()) and 2 <= len(current_lobby_users) <= 10:
+            # Randomly select two captains
+            captains = random.sample(list(current_lobby_users.keys()), 2)
+    
+            # Get member objects for the captains
+            captain_members = [channels['monitor'].guild.get_member(captain_id) for captain_id in captains]
+    
+            # Remove captains from the list of ready users
+            ready_users = [user_id for user_id in current_lobby_users if user_id not in captains]
+    
+            # Assign an emoji to each ready user for selection
+            user_emoji_map = {user_id: emoji for user_id, emoji in zip(ready_users, selection_emojis)}
+    
+            # Get member objects for the ready users
+            ready_member_objects = [channels['monitor'].guild.get_member(user_id) for user_id in ready_users]
+    
+            # Construct the list of ready users with their assigned emoji
+            ready_users_with_emojis = [f"{emoji} {member.display_name}" for member, emoji in zip(ready_member_objects, selection_emojis[:len(ready_users)])]
+    
+            # Construct the team selection message
+            team_selection_message = (
+                "**Team selection phase:**\n"
+                "Team **{}**:    Players:    Team **{}**:\n"
+                "{}                 {}   {}\n\n"
+                "**Currently picking:**\n"
+                "{}\n\n"
+                "{}"
+            ).format(
+                captain_members[0].display_name, captain_members[1].display_name,
+                captain_members[0].display_name, ready_users_with_emojis[0], captain_members[1].display_name,
+                captain_members[0].display_name,
+                "   ".join(ready_users_with_emojis[1:])  # Join the rest of the ready users with their emojis
+            )
+    
+            message_content = team_selection_message  # Update the message content for team selection
+    
+            # Update or send the lobby message
+            if lobby_message_id:  # If a message already exists, edit it
+                try:
+                    lobby_message = await channels['text'].fetch_message(lobby_message_id)
+                    await lobby_message.edit(content=message_content)
+                    # Add reactions for user selection
+                    for emoji in selection_emojis[:len(ready_users)]:
+                        await lobby_message.add_reaction(emoji)
+                except discord.NotFound:
+                    lobby_message_id = None  # Reset if the message is not found
+            if lobby_message_id is None:  # If no message exists or was not found, send a new one
+                lobby_message = await channels['text'].send(message_content)
+                lobby_message_id = lobby_message.id
+                save_lobby_message_id()  # Save the new message ID
+                # Add reactions for user selection
+                for emoji in selection_emojis[:len(ready_users)]:
+                    await lobby_message.add_reaction(emoji)
     else:
         print("Text channel not set.")
 
